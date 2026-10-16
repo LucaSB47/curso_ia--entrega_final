@@ -1,28 +1,30 @@
-from langchain_openai import OpenAIEmbeddings
+from pinecone import Pinecone
 from langchain_pinecone import PineconeVectorStore
+from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from src.config import settings
+from langchain_huggingface import HuggingFaceEmbeddings
 
-async def get_vector_store():
-    embeddings = OpenAIEmbeddings(
-        model="text-embedding-3-small",
-        openai_api_key=settings.OPENAI_API_KEY
-    )
-    
-    vectorstore = PineconeVectorStore(
-        index_name=settings.PINECONE_INDEX_NAME,
-        embedding=embeddings,
-        pinecone_api_key=settings.PINECONE_API_KEY
-    )
-    return vectorstore
+# Modelo local gratuito de 768 dimensiones (no requiere API key)
+embeddings = HuggingFaceEmbeddings(
+    model_name="sentence-transformers/all-mpnet-base-v2"
+)
 
-async def buscar_documentacion_tecnica(query: str, k: int = 3) -> str:
-    """Busca en los manuales de hardware vectorizados en Pinecone."""
-    vectorstore = await get_vector_store()
-    retriever = vectorstore.as_retriever(search_kwargs={"k": k})
-    docs = await retriever.ainvoke(query)
+# Inicializar cliente de Pinecone
+pc = Pinecone(api_key=settings.PINECONE_API_KEY)
+index = pc.Index(settings.PINECONE_INDEX_NAME)
+
+# Conectar LangChain con Pinecone
+vectorstore = PineconeVectorStore(
+    index=index,
+    embedding=embeddings,
+    text_key="text" 
+)
+
+async def buscar_documentacion_tecnica(query: str) -> str:
+    """Busca en Pinecone los documentos más relevantes usando embeddings de Google."""
+    docs = await vectorstore.asimilarity_search(query, k=3)
     
     if not docs:
-        return "No se encontró documentación técnica específica para este caso."
-    
-    contexto = "\n\n".join([doc.page_content for doc in docs])
-    return contexto
+        return "No se encontró documentación técnica relevante en la base de datos."
+        
+    return "\n\n".join([doc.page_content for doc in docs])
